@@ -35,3 +35,6 @@ scratch/
 # Helm
 deploy/**/charts/
 deploy/**/*.tgz
+
+# Desktop app drops a copy of every chat-delivered file here
+Claude outputs/

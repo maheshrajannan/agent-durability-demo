@@ -144,11 +144,19 @@ This follows `docs/LOCAL_DAPR.md`. The repo authors call it a debugging recipe, 
 ### 3.1 Install Dapr
 
 ```bash
-brew install dapr/tap/dapr-cli
+curl -fsSL https://raw.githubusercontent.com/dapr/cli/master/install/install.sh | /bin/bash
 dapr init --runtime-version 1.18.2
 dapr --version
 docker ps --format '{{.Names}}' | grep dapr_
 ```
+
+The script downloads a prebuilt `darwin_amd64` binary and asks for your password
+to place it in `/usr/local/bin`.
+
+**Do not use `brew install dapr/tap/dapr-cli` on an Intel Mac.** I checked the
+formula. It builds the CLI from Go source, and its only bottle is `arm64_sequoia`,
+so on Intel there is nothing prebuilt to pour. Homebrew also now requires you to
+trust third-party taps before it will use them. Same trap as uv. See `RUN_LOG.md`.
 
 Docker must be running. Expected: CLI (command-line interface) and runtime versions, then `dapr_placement`, `dapr_scheduler`, `dapr_redis` and `dapr_zipkin`. Version 1.18.2 is the one the repo authors tested and the one I tested.
 
