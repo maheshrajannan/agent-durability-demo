@@ -38,3 +38,6 @@ deploy/**/*.tgz
 
 # Desktop app drops a copy of every chat-delivered file here
 Claude outputs/
+
+# Captured agent and MCP logs. Curated excerpts live in RUN_LOG.md.
+logs/

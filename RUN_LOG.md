@@ -161,7 +161,7 @@ Web page state before pressing anything, confirmed by screenshot:
 **Browser tip:** the window cuts off the **Reset** button on the right. Zoom out
 with Cmd and minus until it is visible. Reset is needed from Step 6 onward.
 
-## Step 5. The "before" demo: plain agent loses its work - PENDING
+## Step 5. The "before" demo: plain agent loses its work - PASS
 
 All in the browser, with the plain agent still running.
 
@@ -203,7 +203,7 @@ docker compose -f local/compose.yaml exec postgres psql -U bankadmin -d bankdemo
 **173 of 1,000. This is the "before" half of the demo.** Run the same query
 again after Part 3 and the durable run should read 1000 and 1000.00.
 
-## Step 7. Clear the deck for the durable agent - PENDING
+## Step 7. Clear the deck for the durable agent - DONE
 
 1. Press **Stop run** in the browser.
 2. Press Ctrl+C in the plain agent tab, to free port 8000.
@@ -212,7 +212,7 @@ No Reset needed. Start run resets the balances by itself.
 
 **Result: done.** Port 8000 free.
 
-## Step 8. Install Dapr - PENDING
+## Step 8. Install Dapr - PASS, already present
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/dapr/cli/master/install/install.sh | /bin/bash
@@ -252,7 +252,7 @@ dapr_redis      Up 2 hours
 
 Check before you initialise. `dapr init` would have been a wasted download.
 
-## Step 9. Apply the MCP direct patch - PENDING
+## Step 9. Apply the MCP direct patch - PASS
 
 The durable agent has the Catalyst tool-call address hard-coded. The patch adds
 one optional setting, `MCP_DIRECT_URL`, so the agent can call the MCP server
@@ -275,7 +275,7 @@ Undo it when done with Part 3, and do not commit it:
 git checkout -- services/agent-langgraph/agent_worker/mcp_client.py
 ```
 
-## Step 10. Run the durable agent - PENDING
+## Step 10. Run the durable agent - PASS
 
 ```bash
 cd ~/git/agent-durability-demo/services/agent-langgraph
@@ -317,7 +317,7 @@ The line that matters is `runner started (stub=True)`. The placement and
 scheduler connections are the ledger being wired up. That is the whole
 difference from Part 2.
 
-## Step 11. Kill the durable agent and watch it recover - PENDING
+## Step 11. Kill the durable agent and watch it recover - PASS
 
 1. Press **Start run**. Paced at one credit per account every 0.3 s, so the full
    1,000 takes about two minutes.
@@ -351,7 +351,7 @@ Side by side with Part 2, on the same laptop, same 1,000 transactions:
 | After restart | 173, forever | resumed, then 507 and climbing |
 | Button pressed to recover | none would help | none needed |
 
-## Step 12. Let it finish, then prove the invariant - PENDING
+## Step 12. Let it finish, then prove the invariant - PASS
 
 Wait for TRANSACTIONS PROCESSED to reach 1,000 and ACCOUNTS AT TARGET to read
 10 / 10. About another minute at 0.3 s pacing. Then:
@@ -381,7 +381,7 @@ makes a replayed step harmless.
 **Show this query, not the dashboard.** The dashboard claimed `AGENTS ALIVE 10/10`
 while nothing was running. The table cannot lie.
 
-## Step 13. Chaos buttons - PENDING
+## Step 13. Chaos buttons - PASS
 
 Needs an active run, so press **Reset**, then **Start run** first.
 
@@ -486,16 +486,280 @@ Part 4 needs a free account at catalyst.diagrid.io and the `diagrid` CLI.
 
 ---
 
-## Steps still to run
+## Path A summary
 
-| Step | Guide section | Status |
+Numbers match the step headings above.
+
+| Step | Guide section | Result |
 |---|---|---|
-| 3. Start Postgres, MCP server, web page | Part 1 | PASS |
-| 4. Plain agent loses its work | Part 2 | PASS - 173 of 1,000 |
-| 5. Install Dapr | Part 3.1 | PASS - already present, CLI upgraded |
-| 6. Apply the MCP direct patch | Part 3.2 | PASS |
-| 7. Run the durable agent | Part 3.3 | PASS |
-| 8. Kill it and watch it recover | Part 3.4 | PASS - 201 to 507, unattended |
-| 9. Prove the invariant in SQL | Part 3.5 | PASS - 1000 / 1000.00 |
-| 10. Chaos buttons | Part 5 | PASS - 1000 / 1000.00 under chaos |
-| 11. Catalyst Cloud | Part 4 | not started - decision pending |
+| 1. Check the tools | Part 0 | PASS, uv missing |
+| 2. Install uv | Part 0 | PASS on the third attempt, direct installer |
+| 3. Postgres, MCP server, web page | Part 1 | PASS |
+| 4. Start the plain agent | Part 2 | PASS |
+| 5. Plain agent loses its work | Part 2 | PASS, frozen at 173 of 1,000 |
+| 6. Prove the "before" number in SQL | Part 2 | PASS, 173 / 173.00 |
+| 7. Clear the deck | - | done |
+| 8. Install Dapr | Part 3.1 | PASS, already present, CLI upgraded |
+| 9. Apply the MCP direct patch | Part 3.2 | PASS |
+| 10. Run the durable agent | Part 3.3 | PASS, up in 18 s |
+| 11. Kill it and watch it recover | Part 3.4 | PASS, 201 to 507 unattended |
+| 12. Finish, prove the invariant | Part 3.5 | PASS, 1000 / 1000.00 |
+| 13. Chaos buttons | Part 5 | PASS, 1000 / 1000.00 under chaos |
+
+Still to run: Modes 1 to 4 in `run-modes.md`.
+
+---
+
+# Mode 1. Two copies, failover with no restart
+
+Started 2026-09-20. See `run-modes.md` for how the modes fit together.
+
+**The claim being tested is different from last night's.** Last night proved
+"the work survives a restart". Mode 1 proves "the work survives without one".
+A second copy of the agent picks up the dead copy's accounts while the run keeps
+going. That is the laptop equivalent of a pod dying and a healthy pod taking over.
+
+`HOW_TO_RUN.md` section 3.6.
+
+Starting state: the `MCP_DIRECT_URL` patch is committed (`401c1a5`), so there is
+nothing to apply this time.
+
+## M1 Step 1. Bring the stack back up - PASS
+
+```bash
+cd ~/git/agent-durability-demo
+docker compose -f local/compose.yaml up -d
+docker compose -f local/compose.yaml ps
+curl -s http://localhost:9000/healthz
+docker ps --format '{{.Names}}' | grep dapr_
+open http://localhost:9000
+```
+
+No rebuild needed. No `-v` was used last night, so the volume still holds runs
+2, 3 and 5.
+
+```
+{"status":"ok"}
+dapr_zipkin
+dapr_scheduler
+dapr_placement
+dapr_redis
+```
+
+Containers came straight back. Nothing rebuilt, nothing re-downloaded.
+
+## M1 Step 2. Start copy A on port 8000 - PASS
+
+```bash
+cd ~/git/agent-durability-demo/services/agent-langgraph
+STUB_LLM=true MCP_DIRECT_URL=http://localhost:9000/mcp/ \
+  dapr run --app-id bank-agent-creditor --app-port 8000 -H 3500 -G 50001 -M 9091 \
+  -- uv run uvicorn agent_worker.main:app --host 0.0.0.0 --port 8000
+```
+
+Identical to Step 10. Wait for `runner started (stub=True)`.
+
+**Copy A is the one the buttons talk to.** `local/compose.yaml` sets
+`AGENT_HTTP_BASE: http://host.docker.internal:8000`, so Start run and Stop run
+always reach port 8000. Copy A must stay alive for the whole of Mode 1.
+
+**Result: PASS. Up in 4.4 seconds this time, against 18 the first night, because
+the packages and images were already warm.**
+
+```
+INFO:main:runner started (stub=True)
+INFO[0004] Connected to placement service: localhost:50005
+INFO[0004] Reporting initial host to placement service with initial types
+          [dapr.internal.default.bank-agent-creditor.workflow
+           dapr.internal.default.bank-agent-creditor.retentioner
+           dapr.internal.default.bank-agent-creditor.activity]
+INFO[0004] Dissemination complete for version 1
+          ... unlocking disseminator default/bank-agent-creditor
+```
+
+**Those last two lines are the mechanism Mode 1 is about.** The placement
+service keeps a table of which host owns which workflow. Copy A has just
+reported in and the table is at version 1, with one host in it.
+
+Watch that same tab when copy B joins. The table goes to version 2 and the ten
+workflows get split across both hosts. When copy B dies it goes to version 3 and
+B's share moves back to A. That is failover, and it is a table update, not a
+restart.
+
+Also of note: `Component loaded: statestore (state.redis/v1)` and
+`Using 'statestore' as actor state store`. That Redis container is the ledger in
+this mode.
+
+## M1 Step 3. Start copy B on port 8001 - PASS
+
+A **new** Terminal tab. Copy A keeps running.
+
+```bash
+cd ~/git/agent-durability-demo/services/agent-langgraph
+STUB_LLM=true MCP_DIRECT_URL=http://localhost:9000/mcp/ \
+  dapr run --app-id bank-agent-creditor --app-port 8001 -H 3501 -G 50002 -M 9092 \
+  -- uv run uvicorn agent_worker.main:app --host 0.0.0.0 --port 8001
+```
+
+Four numbers change: 8001, 3501, 50002, 9092.
+
+**The app id does NOT change.** Both copies run as `bank-agent-creditor`. That is
+the whole trick. Same id means two replicas of one logical app, so placement
+shares the workflows between them. A different id would mean two unrelated apps
+and no failover at all.
+
+**Result: PASS. Copy A's tab announced the table rewrite the moment B joined.**
+
+```
+INFO[0463] Dissemination complete for version 2
+          (changed types [...activity ...retentioner ...workflow])
+          unlocking disseminator default/bank-agent-creditor
+```
+
+Version 1 was one host. Version 2 is two. Nothing was restarted and nothing was
+configured. Copy B simply reported in under the same app id and placement
+redistributed ownership.
+
+## M1 Step 4. Start a run and confirm BOTH copies are working - PASS
+
+In the browser: **Reset**, then **Start run**.
+
+Then watch both agent tabs. Both should print lines like:
+
+```
+INFO:httpx:HTTP Request: POST http://localhost:9000/mcp/ "HTTP/1.1 200 OK"
+```
+
+**Why copy B does any work at all is the non-obvious part.** The MCP server only
+ever calls port 8000, because `local/compose.yaml` sets
+`AGENT_HTTP_BASE: http://host.docker.internal:8000`. So copy A receives all ten
+schedule-one requests. But scheduling a workflow is not the same as running it.
+Copy A hands each one to the Dapr workflow engine, and placement decides which
+host owns it. Roughly half land on copy B.
+
+If only copy A prints tool calls, the split did not happen. Stop and say so.
+
+**Result: PASS. Run #9. The ten workflows split across both copies.**
+
+Two Terminal windows, colour coded. Blue is copy A on 8000, green is copy B on
+8001. Both printing `POST localhost:9000/mcp/` and `[ACTIVITY] Executing node`.
+
+Ownership at 16:08:06, read off the workflow instance ids
+(`agent-00X-r1789938433`):
+
+| Copy | Accounts it was running |
+|---|---|
+| A (blue, port 8000) | agent-001, agent-006, agent-009, agent-010 |
+| B (green, port 8001) | agent-002, agent-004, agent-007 |
+
+Nothing assigned those. Placement did, from the version 2 table.
+
+## M1 Step 5. Kill copy B mid-run - PASS
+
+Ctrl+C in the green tab at 16:08:27.
+
+```
+INFO: Stopping gRPC worker...
+INFO: No longer listening for work items
+INFO: Worker shutdown completed
+INFO:diagrid.agent.langgraph.runner:Dapr Workflow runtime stopped
+❌  The App process exited with error code: 143
+```
+
+**40 seconds later, copy A was running copy B's accounts.** Blue tab at
+16:09:07:
+
+```
+16:09:07.872  agent-002-r1789938433: Orchestrator yielded with 1 task(s)
+16:09:07.941  agent-001-r1789938433: Orchestrator yielded with 1 task(s)
+16:09:07.968  agent-009-r1789938433: Orchestrator yielded with 1 task(s)
+16:09:08.015  agent-010-r1789938433: Orchestrator yielded with 1 task(s)
+16:09:08.067  agent-002-r1789938433: Orchestrator yielded with 1 task(s)
+```
+
+`agent-002` is the proof. It was copy B's before the kill and it is copy A's
+after, and **the run never stopped to make that happen**. No restart, no button,
+no Start run.
+
+The step counters in that slice read `Step 197` and `Step 201`. One dollar costs
+about two workflow steps, so 100 dollars is about 201 steps. Those accounts were
+finishing as the handover happened.
+
+**This is the claim Mode 1 exists to make.** Last night: the work survives a
+restart. Today: the work survives without one. In Kubernetes terms, last night
+was a pod restarting, today is a pod dying and its replicas absorbing the load.
+
+## M1 Step 6. Let it finish and prove the invariant - PASS
+
+```bash
+cd ~/git/agent-durability-demo
+docker compose -f local/compose.yaml exec postgres psql -U bankadmin -d bankdemo -c "SELECT execution_run_id, COUNT(*), SUM(amount) FROM transactions GROUP BY 1 ORDER BY 1 DESC LIMIT 4;"
+```
+
+Run 9 should read `1000 | 1000.00`, with one agent copy dead for the second half
+of it.
+
+**Result: PASS. Run 9 finished at 1000 / 1000.00 with one of the two agent
+copies dead for the back half of it.**
+
+```
+ execution_run_id | count |   sum
+------------------+-------+---------
+                9 |  1000 | 1000.00   <- two copies, copy B killed mid-run, NO restart
+                5 |  1000 | 1000.00   <- one copy, 3s latency and a forced tool failure
+                3 |  1000 | 1000.00   <- one copy, process killed at 201 and restarted
+                2 |   173 |  173.00   <- plain agent, killed at 173, never recovered
+```
+
+**Four rows, one query. That is the entire demo.** Row 2 is the problem. Rows 3,
+5 and 9 are three different failures the same design absorbs, and every one of
+them lands on exactly 1,000 and exactly $1,000.
+
+---
+
+# Mode 1 is complete
+
+| Failure | Mode | Result |
+|---|---|---|
+| Process dies, you restart it | run 3 | resumes from the ledger, 1000 |
+| Slow tool calls and a hard tool failure | run 5 | retries the step, 1000 |
+| A replica dies, nobody restarts anything | run 9 | the survivor absorbs its accounts, 1000 |
+
+Elapsed: about 35 minutes including writing `run-modes.md`.
+
+## Log capture, added during Mode 1
+
+`local/run-agent.sh A|B` starts a copy with the right ports, the shared app id,
+`PYTHONUNBUFFERED=1` and `tee` to a timestamped file under `logs/`.
+
+`PYTHONUNBUFFERED=1` is not optional. Python buffers when stdout is a pipe
+rather than a terminal, so without it the uvicorn and workflow lines arrive in
+chunks and the last ones are lost on Ctrl+C. Dapr's own lines are unaffected.
+
+`logs/` is gitignored. Curated excerpts live here instead.
+
+## Final dashboard state of run 9, and two things to know before presenting
+
+| Panel | Reading |
+|---|---|
+| TRANSACTIONS PROCESSED | **1,000** |
+| ACCOUNTS AT TARGET | 10 / 10, 100.0% |
+| Accounts total | $2,000.00 / $2,000.00 |
+| TRANSACTIONS LOST | 0 |
+| AGENTS KILLED | **0** |
+| MCP server calls | 1000 queries |
+
+**The counter read 1,000 this time.** Run 5 showed 999 at the same point. So that
+was a timing race at the finish, not a systematic off-by-one. It can still happen
+in front of an audience, so keep the SQL query ready.
+
+**AGENTS KILLED reads 0 even though a copy was killed.** That tile only counts
+chaos injected through the buttons. A Ctrl+C is invisible to it. Do not point at
+that tile as evidence of the kill. Point at the two terminal windows, or the
+database.
+
+## Still to run
+
+Modes 2, 3 and 4 in `run-modes.md`. Mode 2, Catalyst Cloud, is the one that adds
+the console.
+
