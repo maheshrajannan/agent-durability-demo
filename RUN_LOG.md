@@ -763,3 +763,431 @@ database.
 Modes 2, 3 and 4 in `run-modes.md`. Mode 2, Catalyst Cloud, is the one that adds
 the console.
 
+
+---
+
+# Mode 2. Catalyst Cloud
+
+Started 2026-09-26.
+
+Account created at catalyst.r1.diagrid.io. Signup auto-provisioned a project with
+a generated name, `hookworm-beru-w...`, in the `default` folder. Console sidebar
+shows Apps, Agents, MCP servers, Components, Access policies.
+
+**The console now offers a guided quickstart that was not in `HOW_TO_RUN.md`
+Part 4.** "Crash a workflow or an agent and watch it recover", about 10 minutes,
+nothing to install first. That is the same claim the Bank Creditor demo makes,
+on Diagrid's own sample.
+
+Sequencing decision: run that quickstart first, then wire Bank Creditor to
+Catalyst. Reasons:
+
+- 10 minutes against 45 to 60, and it cannot fail on our wiring.
+- Part 4 assumes you can already navigate the app graph, agent page and workflow
+  history. The quickstart teaches exactly those.
+- If Part 4 then misbehaves, you will know the console works and the fault is in
+  our setup, not the platform.
+
+Open question for the Bank Creditor wiring, to check before Part 4:
+
+- Does the auto-provisioned project have managed workflow and agent
+  infrastructure enabled? `HOW_TO_RUN.md` 4.2 creates a project with
+  `--enable-managed-workflow --enable-agent-infrastructure`, and the repo docs
+  say agent infrastructure cannot be added to a project after the fact. If the
+  generated project lacks it, we create a second project rather than fight it.
+
+## The guided quickstart - PROPOSED BY CLAUDE, THEN DROPPED
+
+Claude suggested running Diagrid's guided quickstart first as a warm-up. Mahesh
+pushed back: that quickstart is Diagrid's own sample app, not the Bank Creditor
+demo, and the stated goal is to move **this** demo to the cloud. Correct call.
+Dropped. Noted so the detour is not re-proposed.
+
+For the record, if Part 4 ever stalls in a way we cannot isolate, that quickstart
+is a clean way to prove the account, CLI and console work independently of our
+wiring.
+
+## What Mode 2 actually changes
+
+Everything except the ledger and the tool-call route stays on the Mac.
+
+```
+LOCAL, done, run 9
+  Browser -> MCP server (Docker :9000) -> Agent (Mac :8000)
+                                            ledger -> local Dapr, Redis container
+
+CATALYST, Mode 2
+  Browser -> MCP server (Docker :9000) -> Agent (Mac :8000)
+                                            ledger -> Diagrid cloud
+  tool calls also change route:
+      Agent -> Catalyst MCP proxy -> dev-run tunnel -> MCP server on the Mac
+```
+
+Postgres, the MCP server and the web page stay in Docker. That second route is
+the untested part of `HOW_TO_RUN.md` Part 4.
+
+## M2 Step 1. Install the diagrid CLI and log in - PASS
+
+```bash
+cd ~/Downloads
+curl -o- https://downloads.diagrid.io/cli/install.sh | bash
+sudo mv ./diagrid /usr/local/bin/
+diagrid version
+diagrid login
+diagrid whoami
+```
+
+```
+Organization: hookworm-beru-whitesun-lars (60e0df55-df1a-4060-9b76-63f727676cf4)
+User: Mahesh Rajannan (mahesh.rajannan@gmail.com)
+Product: catalyst
+Catalyst Plan: Cloud
+API: https://api.r1.diagrid.io
+```
+
+Note `whoami` reports the **organization**, not the project. Reading the console
+breadcrumb against this, `hookworm-beru-whitesun-lars` is the org and `default`
+is the auto-created project inside it.
+
+## M2 Step 2. Inspect the auto-created project - PASS, with one caveat
+
+```bash
+diagrid project list
+diagrid project get default
+```
+
+Looking for whether managed workflow and agent infrastructure are enabled.
+`HOW_TO_RUN.md` 4.2 creates a project with
+`--enable-managed-workflow --enable-agent-infrastructure`, and the repo docs say
+agent infrastructure cannot be added to a project after creation. If `default`
+lacks it, create a second project rather than fight it.
+
+```
+NAME       REGION                HTTP URL                                          STATUS
+* default  diagrid-aws-eu-west   https://http-prj13788990.cloud.r1.diagrid.io:443  ready
+
+Name:                  default
+Region:                diagrid-aws-eu-west
+ManagedWorkflowStore:  enabled
+CreatedAt:             2026-08-16 14:34:36
+```
+
+```
+$ diagrid agent list
+No Agents found in project 'default'
+```
+
+**Findings:**
+
+| Question | Answer |
+|---|---|
+| Managed workflow store? | enabled. That is the ledger. |
+| Agent infrastructure? | **yes.** `agent list` returned an empty list, not an error. A project without it errors instead. |
+| Need a new project? | No. `HOW_TO_RUN.md` 4.2 can be skipped. |
+| Region | `diagrid-aws-eu-west` |
+
+**The region is the open risk.** The project sits in Europe, the Mac is in
+Illinois, so every workflow step persists across the Atlantic. The local run did
+1,000 transactions in about 1 minute 45. This will be slower and we do not yet
+know by how much.
+
+**Decision: run it on `default` anyway.** Cheapest reversible test first. Moving
+to a US region costs a project create plus re-registering the MCP server and the
+grant, which is two commands. Nothing built between now and then is wasted. We
+only pay that cost if the measured slowness actually hurts, rather than paying it
+against a guess.
+
+Also worth noting: the project was created 2026-08-16, so the account predates
+this week.
+
+## M2 Step 3. Create the agent identity - PASS
+
+```bash
+diagrid agent create bank-agent-creditor --wait
+diagrid agent list
+```
+
+The name must be `bank-agent-creditor`. That is what `dapr.yaml` runs the agent
+as, and the tool grant in the next step has to name the identity that really
+calls. `docs/CATALYST.md` says `agent-worker` and is wrong, see Appendix B.
+
+```
+✓  You're up and running! Agent bank-agent-creditor has been created successfully.
+```
+
+## M2 Step 4. Register the MCP server and grant the tool - PASS, with a caveat
+
+```bash
+cd ~/git/agent-durability-demo
+docker compose -f local/compose.yaml up -d
+
+cat > local/catalyst-mcpserver.yaml <<'EOF'
+apiVersion: dapr.io/v1alpha1
+kind: MCPServer
+metadata:
+  name: bank-postgres-mcp
+spec:
+  endpoint:
+    streamableHTTP:
+      url: http://localhost:9000/mcp/
+EOF
+
+diagrid apply -f local/catalyst-mcpserver.yaml
+diagrid mcpserver list
+diagrid mcpserver access grant bank-postgres-mcp --caller bank-agent-creditor --allow-tools credit_next --wait
+```
+
+Two things that look wrong and are not:
+
+- **The name `bank-postgres-mcp` is not a free choice.** The agent looks for
+  exactly that name by default, from `MCP_SERVER_NAME` in `mcp_client.py`.
+- **Registering `http://localhost:9000/mcp/` with a cloud service looks absurd.**
+  Catalyst cannot reach it yet. The `diagrid dev run` tunnel in the next step is
+  what makes that address resolvable from Catalyst's side. This is the pattern
+  Diagrid's own `mcp-auth` quickstart uses.
+
+Only `credit_next` is granted. The server also exposes `list_customers` and
+`get_customer`, and the agent calls neither. A new MCP server denies every caller
+until a grant exists.
+
+Open risk: Catalyst may probe the endpoint at registration time and reject it
+before the tunnel exists. Untested.
+
+**Result: both succeeded, but the server sits in `error` until the tunnel exists.**
+
+```
+$ diagrid apply -f local/catalyst-mcpserver.yaml
+dapr.io/v1alpha1/MCPServer bank-postgres-mcp created
+
+$ diagrid mcpserver list
+NAME                URL                        TRANSPORT         STATUS
+bank-postgres-mcp   http://localhost:9000/mcp/ streamable-http   error
+
+$ diagrid mcpserver access grant ... --wait
+✓  MCPServerAccessPolicy bank-postgres-mcp has been updated successfully.
+```
+
+**Correct answer to the open risk: Catalyst DOES probe, asynchronously.** `apply`
+accepts the resource, then reconciliation runs and fails. The exact error:
+
+```
+upstream connection failed: calling "initialize": sending "initialize":
+rejected by transport: Post "http://localhost:9000/mcp/":
+dial tcp [::1]:9000: connect: connection refused
+```
+
+Catalyst, in eu-west, resolved `localhost` to its own loopback and found nothing.
+That is the expected state before `diagrid dev run` opens the tunnel. It is not a
+host-header or TLS problem, which is what would have been bad news.
+
+**The grant succeeded against a server in `error` state.** Access policy and
+endpoint health are independent. Do not wait for green before granting.
+
+Also captured from `mcpserver get`, useful when reading the console:
+
+```
+API Token:  diagrid://v1/<org>/<proj>/default/bank-postgres-mcp/<uuid>
+SpiffeID:   spiffe://.../ns/prj-13788990/bank-postgres-mcp
+Auth:       none
+```
+
+## M2 Step 5. Start it with the dev-run tunnel - PASS, after four distinct failures
+
+```bash
+cd ~/git/agent-durability-demo/services/agent-langgraph
+uv sync
+cd ~/git/agent-durability-demo
+diagrid dev run --file dapr-catalyst-local.yaml --project default --approve
+```
+
+Note `--project default`, not `bank-creditor-local`. We reused the
+auto-provisioned project.
+
+`HOW_TO_RUN.md` 4.5 also passes `--skip-managed-kv --skip-managed-pubsub
+--skip-default-resiliency`. Left off deliberately for the first attempt, since
+those flag names came from the repo docs, which have been wrong twice already.
+Add them only if the run tries to provision things we do not want.
+
+Two checkpoints:
+
+1. Agent log reaches `runner started (stub=True)`.
+2. In another tab, `diagrid mcpserver get bank-postgres-mcp` flips from `error`
+   to healthy. **That is the hypothesis under test:** that the tunnel makes
+   `localhost:9000` resolvable from Catalyst's side and reconciliation retries.
+
+**Result: `Status: ready`.** Took four separate failures to get there. Each one
+had a different cause and a different fix, and the error message changed every
+time, which is what made it tractable.
+
+### The ladder of errors, in order
+
+| # | Error from `diagrid mcpserver get` | HTTP | Real cause | Fix |
+|---|---|---|---|---|
+| 1 | `dial tcp [::1]:9000: connection refused` | - | No tunnel yet. Catalyst dialled its own loopback. | Expected before `dev run`. Not a fault. |
+| 2 | `Bad Gateway` | 502 | Docker Desktop had quit. Tunnel up, nothing behind it. | Start Docker, `compose up -d`. |
+| 3 | `Misdirected Request` | **421** | MCP server rejected the tunnel's `Host` header. | `MCP_ALLOWED_HOSTS` in `local/compose.yaml`. |
+| 4 | `Bad Gateway` again | 502 | Recreated the container while the tunnel was live. The tunnel does not follow a container replacement. | `diagrid dev stop`, then `dev run` again. |
+
+**Read the error, not the status.** `error` meant four different things across two
+hours. The message is the diagnosis.
+
+### Two agent-side failures along the way
+
+**Certificate verification.** The agent died on startup, exit code 1:
+
+```
+Health check on https://http-prj13788990.cloud.r1.diagrid.io:443/v1.0/healthz/outbound
+failed: [SSL: CERTIFICATE_VERIFY_FAILED] unable to get local issuer certificate
+```
+
+Python in the uv environment has no CA (certificate authority) bundle. Fixed
+permanently by writing the certifi path into `dapr-catalyst-local.yaml`:
+
+```yaml
+      SSL_CERT_FILE: ".../services/agent-langgraph/.venv/.../certifi/cacert.pem"
+      REQUESTS_CA_BUNDLE: ".../services/agent-langgraph/.venv/.../certifi/cacert.pem"
+```
+
+Get the path with `uv run python -m certifi` from `services/agent-langgraph`.
+This was already predicted in `HOW_TO_RUN.md` Part 7.
+
+**Port 8000 and consumed tunnel tokens.** An earlier `dev run` window was still
+alive. Two symptoms, one cause:
+
+```
+[Errno 48] error while attempting to bind on address ('0.0.0.0', 8000): address already in use
+failed to create tunnel listener: workload identity join token already consumed
+```
+
+`diagrid dev stop -f dapr-catalyst-local.yaml` releases the tunnels cleanly.
+`Ctrl+C` alone does not always release them. Only one `dev run` at a time: both
+sessions claim the same app id.
+
+### The 421, in detail
+
+The tunnel arrives with `Host: tunnels-proxy.cloud.r1.diagrid.io:443`. The MCP
+server's log names it exactly:
+
+```
+WARNING:mcp.server.transport_security:Invalid Host header: tunnels-proxy.cloud.r1.diagrid.io:443
+```
+
+`services/mcp/mcp_server/server.py` line 122 builds the allowlist from
+`MCP_ALLOWED_HOSTS`, and `mcp/server/transport_security.py` matches exactly or on
+a `host:*` port wildcard. **A bare `*` does not work.** And setting the variable
+**replaces** the built-in list, so localhost and the in-cluster names have to be
+repeated or you break the local path while fixing the tunnel.
+
+### The ordering rule this produced
+
+```
+1. Docker up          (docker compose up -d)
+2. diagrid dev run    (opens the tunnel to whatever is on 9000)
+3. leave both alone
+```
+
+Never recreate the MCP container while a dev session is live. If you must,
+`dev stop` and `dev run` again afterwards.
+
+## M2 Step 6. Run the demo through Catalyst - PASS
+
+Browser at http://localhost:9000. **Reset**, then **Start run**.
+
+Expect it slower than the local run's 1 minute 45. Every workflow step now
+persists in eu-west and every tool call goes out to the Catalyst proxy and back
+through the tunnel.
+
+**Result: run 10 finished at 1000 / 1000.00, with the ledger in Europe.**
+
+```
+ execution_run_id | count |   sum
+------------------+-------+---------
+               10 |  1000 | 1000.00   <- Catalyst Cloud: ledger in eu-west, tool calls via the MCP proxy
+                9 |  1000 | 1000.00   <- local Dapr, two copies, one killed mid-run, no restart
+                5 |  1000 | 1000.00   <- local Dapr, one copy, latency + forced tool failure
+                3 |  1000 | 1000.00   <- local Dapr, one copy, process killed at 201 and restarted
+                2 |   173 |  173.00   <- plain agent, killed at 173, never recovered
+```
+
+Proof the tool calls really left the machine, from the agent log:
+
+```
+POST https://http-prj13788990.cloud.r1.diagrid.io/v1.0/diagrid/mcp/bank-postgres-mcp  200 OK
+```
+
+Not localhost. Illinois to Catalyst's proxy in eu-west, back down the tunnel to
+Docker on the Mac, into Postgres.
+
+### The latency answer
+
+| | Local Dapr | Catalyst eu-west |
+|---|---|---|
+| 1,000 transactions | ~1 min 45 | **5.80 min** |
+| Per workflow step | ~0.5 s | ~1.7 s |
+
+**Roughly 3.3x slower**, and the pacing is identical in both, so the whole
+difference is the Atlantic. Each step persists to Europe and each tool call goes
+out and comes back.
+
+**Decision recorded: a US-region project is worth the ten minutes if this gets
+demoed live.** Five and a half minutes of watching balances climb is too long in
+front of an audience. It costs a project create plus re-registering the MCP
+server and the grant; everything else carries over. Not done yet.
+
+### What the console gives you that the laptop does not
+
+Workflows, then **All workflow executions**, then one instance, then the
+**History** tab. The event list is the ledger itself:
+
+```
+dapr.langgraph.Banker.workflow   ExecutionStarted   09:22:33   (122.07ms)
+execute_node_activity            TaskScheduled      09:22:33   Event ID: 1
+execute_node_activity            TaskCompleted      09:22:33   (119.24ms)
+```
+
+**TaskScheduled is written before the work runs. TaskCompleted after, with the
+result.** About 402 events per account, two per step. On replay the engine walks
+this list: every step with a TaskCompleted is not re-run, its recorded result is
+returned instead. The first step with a TaskScheduled and no TaskCompleted is
+where real work resumes.
+
+That is the mechanism behind every row in the table above, and the console is the
+only place in this demo where you can point at it.
+
+---
+
+# Mode 2 is complete
+
+| Failure | Mode | Result |
+|---|---|---|
+| Process dies, you restart it | run 3 | 1000 |
+| Slow and failing tool calls | run 5 | 1000 |
+| A replica dies, nobody restarts anything | run 9 | 1000 |
+| The ledger lives in another continent | run 10 | 1000 |
+
+Elapsed for Mode 2: about five hours across one day, most of it on the four-rung
+error ladder above. The parts that were genuinely hard were the certificate
+bundle, the Host-header rejection, and the ordering rule. None of those are in
+the repo's own docs.
+
+## Close-out
+
+```bash
+# in the dev run window
+Ctrl+C
+diagrid dev stop -f dapr-catalyst-local.yaml
+docker compose -f local/compose.yaml down
+```
+
+`dev stop` matters. Ctrl+C alone does not always release the tunnel tokens, and
+the next `dev run` then fails with "workload identity join token already
+consumed".
+
+## Still to run
+
+| Mode | What it adds | Time |
+|---|---|---|
+| US-region project | cuts 5.8 min back towards 1.7 | ~10 min |
+| 3. Dapr Agents variant | the same durability on a second framework | ~20 min |
+| 4. Kubernetes self-hosted | the Pod failure and AZ failure buttons | half a day, skip |
+

@@ -24,6 +24,11 @@ services:
       DATABASE_URL: postgresql://bankadmin:bankadmin@postgres:5432/bankdemo
       DB_POOL_MAX: "100"
       LOG_LEVEL: INFO
+      # Setting this REPLACES the server's built-in list, so the localhost and
+      # in-cluster names have to be repeated here. The last entry is Diagrid's
+      # dev-run tunnel, which arrives with Host: tunnels-proxy.cloud.r1.diagrid.io:443
+      # and is rejected with HTTP 421 without it.
+      MCP_ALLOWED_HOSTS: "localhost,localhost:8000,localhost:9000,127.0.0.1,127.0.0.1:8000,127.0.0.1:9000,mcp,mcp:80,mcp:8000,mcp.bank-creditor.svc.cluster.local,mcp.bank-creditor.svc.cluster.local:80,mcp.bank-creditor.svc.cluster.local:8000,tunnels-proxy.cloud.r1.diagrid.io,tunnels-proxy.cloud.r1.diagrid.io:*"
       UI_PROTOTYPE_DIR: /ui-prototype
       # Agent worker runs on the host via `diagrid dev run` (see docs/CATALYST.md);
       # the UI proxies `/agent/*` requests through this service to reach it.

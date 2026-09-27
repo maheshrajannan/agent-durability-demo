@@ -1,0 +1,23 @@
+version: 1
+common:
+  appLogDestination: console
+  daprdLogDestination: console
+  enableAppHealthCheck: false
+  logLevel: info
+apps:
+  - appID: bank-agent-creditor
+    appDirPath: ./services/agent-langgraph
+    daprHTTPPort: 3500
+    appPort: 8000
+    appProtocol: http
+    command: ["uv", "run", "uvicorn", "agent_worker.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    env:
+      STUB_LLM: "true"
+      LOG_LEVEL: INFO
+      SSL_CERT_FILE: "/Users/maheshrajannan/git/agent-durability-demo/services/agent-langgraph/.venv/lib/python3.11/site-packages/certifi/cacert.pem"
+      REQUESTS_CA_BUNDLE: "/Users/maheshrajannan/git/agent-durability-demo/services/agent-langgraph/.venv/lib/python3.11/site-packages/certifi/cacert.pem"
+  - appID: bank-postgres-mcp
+    appDirPath: ./local
+    appPort: 9000
+    appProtocol: http
+    command: ["tail", "-f", "/dev/null"]

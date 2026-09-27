@@ -1,0 +1,8 @@
+apiVersion: dapr.io/v1alpha1
+kind: MCPServer
+metadata:
+  name: bank-postgres-mcp
+spec:
+  endpoint:
+    streamableHTTP:
+      url: http://localhost:9000/mcp/
